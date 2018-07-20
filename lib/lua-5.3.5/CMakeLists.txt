@@ -1,0 +1,51 @@
+add_library(lua
+	src/lauxlib.c
+	src/liolib.c
+	src/lopcodes.c
+	src/lstate.c
+	src/lobject.c
+	src/lmathlib.c
+	src/loadlib.c
+	src/lvm.c
+	src/lfunc.c
+	src/lstrlib.c
+	src/lua.c
+	src/linit.c
+	src/lstring.c
+	src/lundump.c
+	src/lctype.c
+	src/luac.c
+	src/ltable.c
+	src/ldump.c
+	src/loslib.c
+	src/lgc.c
+	src/lzio.c
+	src/ldblib.c
+	src/lutf8lib.c
+	src/lmem.c
+	src/lcorolib.c
+	src/lcode.c
+	src/ltablib.c
+	src/lbitlib.c
+	src/lapi.c
+	src/lbaselib.c
+	src/ldebug.c
+	src/lparser.c
+	src/llex.c
+	src/ltm.c
+	src/ldo.c
+)
+
+target_compile_definitions(lua
+  PUBLIC
+    # Do not allow implicit conversion between strings and numbers -- they are mistakes waiting to happen 
+    LUA_NOCVTN2S
+    LUA_NOCVTS2N
+)
+
+target_include_directories(lua
+  PUBLIC
+    include
+  PRIVATE
+    include/lua
+)
