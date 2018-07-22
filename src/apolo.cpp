@@ -464,19 +464,19 @@ const ScriptEngine::ObjectTypeInfo* ScriptEngine::GetObjectTypeInfo(std::type_in
 void ScriptEngine::PushValue(lua_State& state, const value& value)
 {
     value.visit(detail::overloaded{
-        [&](nullptr_t) { lua_pushnil(&state); },
-            [&](bool arg) { lua_pushboolean(&state, arg); },
-            [&](long long arg) { lua_pushnumber(&state, static_cast<lua_Number>(arg)); },
-            [&](double arg) { lua_pushnumber(&state, arg); },
-            [&](const std::string& arg) { lua_pushstring(&state, arg.c_str()); },
-            [&](std::type_index type, const std::any& object)
+        [&](std::nullptr_t) { lua_pushnil(&state); },
+        [&](bool arg) { lua_pushboolean(&state, arg); },
+        [&](long long arg) { lua_pushnumber(&state, static_cast<lua_Number>(arg)); },
+        [&](double arg) { lua_pushnumber(&state, arg); },
+        [&](const std::string& arg) { lua_pushstring(&state, arg.c_str()); },
+        [&](std::type_index type, const std::any& object)
+        {
+            auto* script = Script::GetFromState(state);
+            if (script != nullptr)
             {
-                auto* script = Script::GetFromState(state);
-                if (script != nullptr)
-                {
-                    script->PushScriptObject(state, type, object);
-                }
-            },
+                script->PushScriptObject(state, type, object);
+            }
+        },
     });
 }
 

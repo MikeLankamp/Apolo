@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.9)
 
 set(CMAKE_CXX_STANDARD 17)
 project(apolo LANGUAGES C CXX)
@@ -32,7 +32,7 @@ target_link_libraries(${PROJECT_NAME}-test
     gmock
     gmock-main
 )
-gtest_discover_tests(${PROJECT_NAME}-test)
+gtest_add_tests(TARGET ${PROJECT_NAME}-test)
 
 # External libraries
 add_subdirectory(lib)

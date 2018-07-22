@@ -18,7 +18,7 @@ namespace apolo
     inline void PrintTo(const value& value, ::std::ostream* os)
     {
         value.visit(overloaded{
-            [&](nullptr_t) { *os << "nil"; },
+            [&](std::nullptr_t) { *os << "nil"; },
             [&](const std::string& x) { *os << '\"' << x << '\"'; },
             [&](const auto& x) { *os << x; }
         });

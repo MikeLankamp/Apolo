@@ -17,7 +17,7 @@ namespace
     {
         std::optional<Type> type;
         value.visit(overloaded{
-           [&](nullptr_t) { type = Type::Nil; },
+           [&](std::nullptr_t) { type = Type::Nil; },
            [&](bool) { type = Type::Boolean; },
            [&](long long) { type = Type::Integer; },
            [&](double) { type = Type::Float; },

@@ -9,6 +9,11 @@ target_include_directories(gtest
     .
 )
 
+target_link_libraries(gtest
+  PRIVATE
+    pthread
+)
+
 add_library(gtest-main
 	src/gtest_main.cc
 )

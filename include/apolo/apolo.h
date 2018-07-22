@@ -3,6 +3,7 @@
 #include <lua/lua.hpp>
 
 #include <any>
+#include <cassert>
 #include <cstddef>
 #include <future>
 #include <list>
