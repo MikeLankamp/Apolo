@@ -15,22 +15,33 @@ matrix:
   include:
     - os: linux
       compiler: gcc
-      env: CONFIG=Debug
+      env: CONFIG=Debug COVERAGE=0
     - os: linux
       compiler: gcc
-      env: CONFIG=Release
+      env: CONFIG=Release COVERAGE=0
     - os: linux
       compiler: clang
-      env: CONFIG=Debug
+      env: CONFIG=Debug COVERAGE=0
     - os: linux
       compiler: clang
-      env: CONFIG=Release
+      env: CONFIG=Release COVERAGE=0
+    - os: linux
+      compiler: gcc
+      sudo: required
+      env: CONFIG=Debug COVERAGE=1
 
+before_install:
+  - if [ $COVERAGE -eq 1 ]; then sudo pip install codecov gcovr; fi
+
+# Select gcc-8 toolchain
 install:
-  - "[ $CXX = g++ ] && export CXX=g++-8 || true"
+  - if [ "$CXX" = "g++" ]; then sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-8 90; fi
+  - if [ "$CXX" = "g++" ]; then sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 90; fi
+  - if [ "$CXX" = "g++" ]; then sudo update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-8 90; fi
 
 script:
   - set -e
   - mkdir -p build && cd build
-  - cmake -DCMAKE_BUILD_TYPE=$CONFIG .. && make -j
+  - cmake -DCMAKE_BUILD_TYPE=$CONFIG -DENABLE_COVERAGE=$COVERAGE .. && make -j
   - ctest --output-on-failure
+  - if [ $COVERAGE -eq 1 ]; then make apolo-coverage && codecov -X gcov search -f apolo-coverage.xml; fi

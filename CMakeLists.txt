@@ -1,7 +1,29 @@
 cmake_minimum_required(VERSION 3.9)
 
+set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 set(CMAKE_CXX_STANDARD 17)
 project(apolo LANGUAGES C CXX)
+
+
+if (ENABLE_COVERAGE)
+  include(CodeCoverage)
+
+  # Set the correct compiler flags for coverage
+  append_coverage_compiler_flags()
+
+  # Do not list coverage for external libraries and test code
+  list(APPEND COVERAGE_GCOVR_EXCLUDES
+    "${CMAKE_CURRENT_SOURCE_DIR}/lib"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+  )
+
+  # Create a coverage target that generates the coverage report XML.
+  setup_target_for_coverage_gcovr_xml(
+    NAME ${PROJECT_NAME}-coverage
+    DEPENDENCIES ${PROJECT_NAME}-test
+  )
+endif()
+
 
 add_library(${PROJECT_NAME}
   src/apolo.cpp
