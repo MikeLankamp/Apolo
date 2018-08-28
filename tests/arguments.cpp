@@ -22,96 +22,96 @@ namespace
 TEST(arguments, arguments_signed_integers)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::args_signed_integers);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_signed_integers);
     EXPECT_CALL(mock, args_signed_integers(1, 2, 3, 4, 5));
-    engine.CreateScript("dummy", S("foo(1,2,3,4,5)"));
+    apolo::script("dummy", S("foo(1,2,3,4,5)"), registry);
 }
 
 TEST(arguments, arguments_unsigned_integers)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::args_unsigned_integers);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_unsigned_integers);
     EXPECT_CALL(mock, args_unsigned_integers(1, 2, 3, 4, 5));
-    engine.CreateScript("dummy", S("foo(1,2,3,4,5)"));
+    apolo::script("dummy", S("foo(1,2,3,4,5)"), registry);
 }
 
 TEST(arguments, arguments_float)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::args_floats);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_floats);
     EXPECT_CALL(mock, args_floats(1.5f, 2.5));
-    engine.CreateScript("dummy", S("foo(1.5,2.5)"));
+    apolo::script("dummy", S("foo(1.5,2.5)"), registry);
 }
 
 TEST(arguments, arguments_string)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::args_string);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_string);
     EXPECT_CALL(mock, args_string("Hello World"));
-    engine.CreateScript("dummy", S("foo(\"Hello World\")"));
+    apolo::script("dummy", S("foo(\"Hello World\")"), registry);
 }
 
 TEST(arguments, too_few_arguments)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::args_string);
-    EXPECT_THROW(engine.CreateScript("dummy", S("foo()")), apolo::runtime_error);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_string);
+    EXPECT_THROW(apolo::script("dummy", S("foo()"), registry), apolo::runtime_error);
 }
 
 TEST(arguments, too_many_arguments)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::args_string);
-    EXPECT_THROW(engine.CreateScript("dummy", S("foo(\"Hello World\", \"Hi\")")), apolo::runtime_error);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_string);
+    EXPECT_THROW(apolo::script("dummy", S("foo(\"Hello World\", \"Hi\")"), registry), apolo::runtime_error);
 }
 
 TEST(arguments, invalid_argument_types)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::args_string);
-    EXPECT_THROW(engine.CreateScript("dummy", S("foo(2)")), apolo::runtime_error);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_string);
+    EXPECT_THROW(apolo::script("dummy", S("foo(2)"), registry), apolo::runtime_error);
 }
 
 TEST(arguments, no_implicit_conversion_from_string_to_number)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::args_integer);
-    EXPECT_THROW(engine.CreateScript("dummy", S("foo(\"2\")")), apolo::runtime_error);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_integer);
+    EXPECT_THROW(apolo::script("dummy", S("foo(\"2\")"), registry), apolo::runtime_error);
 }
 
 TEST(arguments, no_implicit_conversion_from_number_to_string)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::args_string);
-    EXPECT_THROW(engine.CreateScript("dummy", S("foo(2)")), apolo::runtime_error);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_string);
+    EXPECT_THROW(apolo::script("dummy", S("foo(2)"), registry), apolo::runtime_error);
 }
 
 TEST(arguments, variable_arguments)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::args_variable);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_variable);
     std::vector<apolo::value> expected_args{{"Hi"}, {2}, {4.51}};
     EXPECT_CALL(mock, args_variable(42, expected_args));
-    engine.CreateScript("dummy", S("foo(42, \"Hi\", 2, 4.51)"));
+    apolo::script("dummy", S("foo(42, \"Hi\", 2, 4.51)"), registry);
 }
 
 TEST(arguments, empty_variable_arguments)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::args_variable);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_variable);
     std::vector<apolo::value> expected_args;
     EXPECT_CALL(mock, args_variable(42, expected_args));
-    engine.CreateScript("dummy", S("foo(42)"));
+    apolo::script("dummy", S("foo(42)"), registry);
 }
 

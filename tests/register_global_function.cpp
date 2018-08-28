@@ -1,6 +1,4 @@
-#include <apolo/apolo.h>
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
+#include "common.h"
 
 namespace
 {
@@ -11,11 +9,6 @@ namespace
       MOCK_CONST_METHOD0(const_member, void());
     };
 
-    std::vector<char> S(const char* str)
-    {
-        return {str, str + strlen(str)};
-    }
-
     bool s_called = false;
 
     void SetCalled()
@@ -24,38 +17,43 @@ namespace
     }
 }
 
+TEST(register_global_function, no_registry)
+{
+    EXPECT_THROW(apolo::script("dummy", S("foo()")), apolo::runtime_error);
+}
+
 TEST(register_global_function, free_function)
 {
     s_called = false;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", &SetCalled);
-    engine.CreateScript("dummy", S("foo()"));
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", &SetCalled);
+    apolo::script("dummy", S("foo()"), registry);
     EXPECT_TRUE(s_called);
 }
 
 TEST(register_global_function, member_function)
 {
     Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::non_const_member);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::non_const_member);
     EXPECT_CALL(mock, non_const_member());
-    engine.CreateScript("dummy", S("foo()"));
+    apolo::script("dummy", S("foo()"), registry);
 }
 
 TEST(register_global_function, const_member_function)
 {
     const Mock mock;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", mock, &Mock::const_member);
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::const_member);
     EXPECT_CALL(mock, const_member());
-    engine.CreateScript("dummy", S("foo()"));
+    apolo::script("dummy", S("foo()"), registry);
 }
 
 TEST(register_global_function, lambda)
 {
     bool called = false;
-    apolo::ScriptEngine engine;
-    engine.RegisterGlobalFunction("foo", [&]() -> void { called = true; });
-    engine.CreateScript("dummy", S("foo()"));
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", [&]() -> void { called = true; });
+    apolo::script("dummy", S("foo()"), registry);
     EXPECT_TRUE(called);
 }

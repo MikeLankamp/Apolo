@@ -20,6 +20,7 @@ namespace apolo
         value.visit(overloaded{
             [&](std::nullptr_t) { *os << "nil"; },
             [&](const std::string& x) { *os << '\"' << x << '\"'; },
+            [&](std::type_index type, uintptr_t address) { *os << type.name() << "@" << address; },
             [&](const auto& x) { *os << x; }
         });
     }

@@ -1,5 +1,4 @@
 #include "common.h"
-#include <gmock/gmock.h>
 #include <optional>
 
 namespace
@@ -10,7 +9,8 @@ namespace
         Boolean,
         Integer,
         Float,
-        String
+        String,
+        Object
     };
 
     Type get_type(const apolo::value& value)
@@ -21,7 +21,8 @@ namespace
            [&](bool) { type = Type::Boolean; },
            [&](long long) { type = Type::Integer; },
            [&](double) { type = Type::Float; },
-           [&](const std::string&) { type = Type::String; }
+           [&](const std::string&) { type = Type::String; },
+           [&](std::type_index, uintptr_t) { type = Type::Object; },
         });
         assert(type);
         return *type;
