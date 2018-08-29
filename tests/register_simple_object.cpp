@@ -40,8 +40,6 @@ TEST(register_simple_object, basic)
         .WithMethod("bar", &Mock::non_const_member)
         .Build());
 
-    apolo::script script("dummy", S("function test(x) x:foo() x:bar() end"), registry);
-
     const auto mock = std::static_pointer_cast<Mock>(std::make_shared<StrictMock<Mock>>());
     {
         InSequence s1;
@@ -49,7 +47,14 @@ TEST(register_simple_object, basic)
         EXPECT_CALL(*mock, non_const_member());
     }
 
-    script.call("test", mock);
+    // Scope the lifetime of the script to force cleanup before checking the mock's use count
+    {
+        apolo::script script("dummy", S("function test(x) x:foo() x:bar() end"), registry);
+        script.call("test", mock);
+    }
+
+    // We should have only this reference left afterwards
+    EXPECT_EQ(1, mock.use_count());
 }
 
 TEST(register_simple_object, call_method_with_invalid_self)
