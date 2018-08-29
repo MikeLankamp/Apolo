@@ -20,7 +20,7 @@ TEST(register_simple_object, no_registry)
     EXPECT_THROW(script.call("test", mock), apolo::runtime_error);
 }
 
-#if GTEST_HAS_DEATH_TEST
+#if GTEST_HAS_DEATH_TEST && !defined(NDEBUG)
 TEST(register_simple_object, register_method_twice)
 {
     apolo::object_description<Mock> desc;
