@@ -122,3 +122,11 @@ TEST(arguments, empty_variable_arguments)
     EXPECT_CALL(mock, args_variable(42, expected_args));
     apolo::script("dummy", S("foo(42)"), registry);
 }
+
+TEST(arguments, nil_variable_argument)
+{
+    Mock mock;
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", mock, &Mock::args_variable);
+    EXPECT_THROW(apolo::script("dummy", S("foo(nil)"), registry), apolo::runtime_error);
+}
