@@ -303,7 +303,7 @@ namespace detail
         int invoke(lua_State& state) override
         {
             // Check that the first argument is a native object reference
-            auto* ref = static_cast<std::shared_ptr<ObjectType>*>(luaL_checkudata(&state, 1, detail::metatable_name<ObjectType>().c_str()));
+            auto* ref = static_cast<std::shared_ptr<ObjectType>*>(luaL_testudata(&state, 1, detail::metatable_name<ObjectType>().c_str()));
             if (ref != nullptr)
             {
                 // It is; read the arguments from Lua and call the callback
@@ -444,7 +444,7 @@ private:
     {
         assert(m_free_functions.find(name) == m_free_functions.end());
         m_free_functions.emplace(std::move(name),
-            std::make_unique<detail::simple_lua_callback<R, Args...>>(std::move(callable)));
+        std::make_unique<detail::simple_lua_callback<R, Args...>>(std::move(callable)));
     }
 
     std::unordered_map<std::string, std::unique_ptr<detail::lua_callback>> m_free_functions;

@@ -45,8 +45,10 @@ include(GoogleTest)
 enable_testing()
 add_executable(${PROJECT_NAME}-test
   tests/arguments.cpp
+  tests/function_call.cpp
   tests/register_global_function.cpp
   tests/register_simple_object.cpp
+  tests/script.cpp
   tests/value.cpp
 )
 target_link_libraries(${PROJECT_NAME}-test

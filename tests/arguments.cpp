@@ -1,5 +1,4 @@
 #include "common.h"
-#include <gmock/gmock.h>
 
 namespace
 {
@@ -9,7 +8,9 @@ namespace
       MOCK_METHOD0(non_const_member, void());
       MOCK_CONST_METHOD0(const_member, void());
 
+      MOCK_METHOD1(args_bool, void(bool));
       MOCK_METHOD1(args_integer, void(int));
+      MOCK_METHOD1(args_float, void(float));
       MOCK_METHOD1(args_string, void(const std::string&));
       MOCK_METHOD5(args_signed_integers, void(char, short, int, long, long long));
       MOCK_METHOD5(args_unsigned_integers, void(unsigned char, unsigned short, unsigned int, unsigned long, unsigned long long));
@@ -75,8 +76,15 @@ TEST(arguments, invalid_argument_types)
 {
     Mock mock;
     auto registry = std::make_shared<apolo::type_registry>();
-    registry->add_free_function("foo", mock, &Mock::args_string);
-    EXPECT_THROW(apolo::script("dummy", S("foo(2)"), registry), apolo::runtime_error);
+    registry->add_free_function("foo_string", mock, &Mock::args_string);
+    registry->add_free_function("foo_int", mock, &Mock::args_integer);
+    registry->add_free_function("foo_float", mock, &Mock::args_float);
+    registry->add_free_function("foo_bool", mock, &Mock::args_bool);
+
+    EXPECT_THROW(apolo::script("dummy", S("foo_string(2)"), registry), apolo::runtime_error);
+    EXPECT_THROW(apolo::script("dummy", S("foo_int(\"x\")"), registry), apolo::runtime_error);
+    EXPECT_THROW(apolo::script("dummy", S("foo_float(\"x\")"), registry), apolo::runtime_error);
+    EXPECT_THROW(apolo::script("dummy", S("foo_bool(\"x\")"), registry), apolo::runtime_error);
 }
 
 TEST(arguments, no_implicit_conversion_from_string_to_number)
@@ -100,9 +108,9 @@ TEST(arguments, variable_arguments)
     Mock mock;
     auto registry = std::make_shared<apolo::type_registry>();
     registry->add_free_function("foo", mock, &Mock::args_variable);
-    std::vector<apolo::value> expected_args{{"Hi"}, {2}, {4.51}};
+    std::vector<apolo::value> expected_args{{"Hi"}, {2}, {4.51}, true};
     EXPECT_CALL(mock, args_variable(42, expected_args));
-    apolo::script("dummy", S("foo(42, \"Hi\", 2, 4.51)"), registry);
+    apolo::script("dummy", S("foo(42, \"Hi\", 2, 4.51, true)"), registry);
 }
 
 TEST(arguments, empty_variable_arguments)
@@ -114,4 +122,3 @@ TEST(arguments, empty_variable_arguments)
     EXPECT_CALL(mock, args_variable(42, expected_args));
     apolo::script("dummy", S("foo(42)"), registry);
 }
-

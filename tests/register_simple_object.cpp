@@ -20,14 +20,25 @@ TEST(register_simple_object, no_registry)
     EXPECT_THROW(script.call("test", mock), apolo::runtime_error);
 }
 
+#if GTEST_HAS_DEATH_TEST
+TEST(register_simple_object, register_method_twice)
+{
+    apolo::object_description<Mock> desc;
+    desc.WithMethod("foo", &Mock::const_member);
+    desc.WithMethod("bar", &Mock::non_const_member);
+    EXPECT_DEATH(desc.WithMethod("foo", &Mock::const_member), "WithMethod");
+    EXPECT_DEATH(desc.WithMethod("bar", &Mock::non_const_member), "WithMethod");
+}
+#endif
+
 TEST(register_simple_object, basic)
 {
     const auto registry = std::make_shared<apolo::type_registry>();
     registry->add_object_type(
-      apolo::object_description<Mock>()
-      .WithMethod("foo", &Mock::const_member)
-      .WithMethod("bar", &Mock::non_const_member)
-      .Build());
+        apolo::object_description<Mock>()
+        .WithMethod("foo", &Mock::const_member)
+        .WithMethod("bar", &Mock::non_const_member)
+        .Build());
 
     apolo::script script("dummy", S("function test(x) x:foo() x:bar() end"), registry);
 
@@ -39,4 +50,18 @@ TEST(register_simple_object, basic)
     }
 
     script.call("test", mock);
+}
+
+TEST(register_simple_object, call_method_with_invalid_self)
+{
+    const auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_object_type(
+      apolo::object_description<Mock>()
+      .WithMethod("foo", &Mock::const_member)
+      .Build());
+
+    apolo::script script("dummy", S("function test(x) x.foo(2) end"), registry);
+
+    const auto mock = std::make_shared<Mock>();
+    EXPECT_THROW(script.call("test", mock), apolo::runtime_error);
 }
