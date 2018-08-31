@@ -23,22 +23,21 @@ TEST(register_simple_object, no_registry)
 #if GTEST_HAS_DEATH_TEST && !defined(NDEBUG)
 TEST(register_simple_object, register_method_twice)
 {
-    apolo::object_description<Mock> desc;
+    apolo::type_registry registry;
+    auto& desc = registry.add_object_type<Mock>();
     desc.WithMethod("foo", &Mock::const_member);
     desc.WithMethod("bar", &Mock::non_const_member);
-    EXPECT_DEATH(desc.WithMethod("foo", &Mock::const_member), "WithMethod");
-    EXPECT_DEATH(desc.WithMethod("bar", &Mock::non_const_member), "WithMethod");
+    EXPECT_DEATH(desc.WithMethod("foo", &Mock::const_member), "register_method");
+    EXPECT_DEATH(desc.WithMethod("bar", &Mock::non_const_member), "register_method");
 }
 #endif
 
 TEST(register_simple_object, basic)
 {
     const auto registry = std::make_shared<apolo::type_registry>();
-    registry->add_object_type(
-        apolo::object_description<Mock>()
-        .WithMethod("foo", &Mock::const_member)
-        .WithMethod("bar", &Mock::non_const_member)
-        .Build());
+    registry->add_object_type<Mock>()
+      .WithMethod("foo", &Mock::const_member)
+      .WithMethod("bar", &Mock::non_const_member);
 
     const auto mock = std::static_pointer_cast<Mock>(std::make_shared<StrictMock<Mock>>());
     {
@@ -60,10 +59,8 @@ TEST(register_simple_object, basic)
 TEST(register_simple_object, call_method_with_invalid_self)
 {
     const auto registry = std::make_shared<apolo::type_registry>();
-    registry->add_object_type(
-      apolo::object_description<Mock>()
-      .WithMethod("foo", &Mock::const_member)
-      .Build());
+    registry->add_object_type<Mock>()
+      .WithMethod("foo", &Mock::const_member);
 
     apolo::script script("dummy", S("function test(x) x.foo(2) end"), registry);
 

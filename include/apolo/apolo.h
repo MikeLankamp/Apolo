@@ -243,11 +243,11 @@ namespace detail
     {
     public:
         virtual ~lua_callback() = default;
-        virtual int invoke(lua_State& state) = 0;
+        virtual int invoke(lua_State& state) const = 0;
 
     protected:
         template <typename Callable, typename ArgsTuple>
-        int invoke(lua_State& state, Callable &&callable, ArgsTuple&& argsTuple)
+        int invoke(lua_State& state, Callable &&callable, ArgsTuple&& argsTuple) const
         {
             return push_value(state, [&](){
                 return std::apply(std::forward<Callable>(callable), std::forward<ArgsTuple>(argsTuple));
@@ -256,7 +256,7 @@ namespace detail
 
     private:
         template <typename Callable>
-        std::enable_if_t<std::is_void_v<std::result_of_t<Callable()>>, int>
+        static std::enable_if_t<std::is_void_v<std::result_of_t<Callable()>>, int>
         push_value(lua_State&, Callable&& callable)
         {
             callable();
@@ -264,7 +264,7 @@ namespace detail
         }
 
         template <typename Callable>
-        std::enable_if_t<!std::is_void_v<std::result_of_t<Callable()>>, int>
+        static std::enable_if_t<!std::is_void_v<std::result_of_t<Callable()>>, int>
         push_value(lua_State& state, Callable&& callable)
         {
             push_value(state, callable());
@@ -281,7 +281,7 @@ namespace detail
         {
         }
 
-        int invoke(lua_State& state) override
+        int invoke(lua_State& state) const override
         {
             auto args = read_arguments<1, std::decay_t<Args>...>(state);
             return detail::lua_callback::invoke(state, m_callable, args);
@@ -291,8 +291,27 @@ namespace detail
         std::function<R(Args...)> m_callable;
     };
 
+    template <typename ObjectType>
+    class object_lua_callback : public detail::lua_callback
+    {
+    public:
+        int invoke(lua_State& state) const override
+        {
+            // Check that the first argument is a native object reference
+            auto* ref = static_cast<std::shared_ptr<ObjectType>*>(luaL_testudata(&state, 1, detail::metatable_name<ObjectType>().c_str()));
+            if (ref == nullptr)
+            {
+                throw runtime_error("Wrong arguments to function");
+            }
+            assert(*ref != nullptr);
+            return invoke(**ref, state);
+        }
+
+        virtual int invoke(ObjectType& object, lua_State& state) const = 0;
+    };
+
     template <typename ObjectType, typename Callable, typename... Args>
-    class unbound_lua_callback : public detail::lua_callback
+    class unbound_lua_callback : public object_lua_callback<ObjectType>
     {
     public:
         unbound_lua_callback(Callable callable)
@@ -300,71 +319,36 @@ namespace detail
         {
         }
 
-        int invoke(lua_State& state) override
+        int invoke(ObjectType& object, lua_State& state) const override
         {
-            // Check that the first argument is a native object reference
-            auto* ref = static_cast<std::shared_ptr<ObjectType>*>(luaL_testudata(&state, 1, detail::metatable_name<ObjectType>().c_str()));
-            if (ref != nullptr)
-            {
-                // It is; read the arguments from Lua and call the callback
-                assert(*ref != nullptr);
-                auto args = read_arguments<2, std::decay_t<Args>...>(state);
-                auto applyArgs = std::tuple_cat(std::tie(**ref), args);
-                return detail::lua_callback::invoke(state, m_callable, applyArgs);
-            }
-            throw runtime_error("Wrong arguments to function");
+            // Read the arguments from Lua and call the callback
+            auto args = read_arguments<2, std::decay_t<Args>...>(state);
+            auto applyArgs = std::tuple_cat(std::tie(object), args);
+            return detail::lua_callback::invoke(state, m_callable, applyArgs);
         }
 
     private:
         Callable m_callable;
     };
+
+    template <typename DerivedType, typename BaseType>
+    class object_cast_lua_callback : public detail::object_lua_callback<DerivedType>
+    {
+    public:
+        object_cast_lua_callback(const object_lua_callback<BaseType>& callback)
+            : m_callback(callback)
+        {
+        }
+
+        int invoke(DerivedType& object, lua_State& state) const override
+        {
+            return m_callback.invoke(object, state);
+        }
+
+    private:
+        const object_lua_callback<BaseType>& m_callback;
+    };
 }
-
-struct object_type_info
-{
-    // The ID of the object type
-    const std::type_index m_typeIndex;
-
-    // The methods in the object type
-    std::unordered_map<std::string, std::unique_ptr<detail::lua_callback>> m_methods;
-};
-
-template <typename ObjectType>
-class object_description
-{
-    static_assert(std::is_class_v<ObjectType>);
-
-public:
-    template <typename R, typename... Args>
-    object_description& WithMethod(const std::string& name, R(ObjectType::*callable)(Args...))
-    {
-        auto [it,success] = m_methods.emplace(name,
-            std::make_unique<detail::unbound_lua_callback<ObjectType, decltype(callable), Args...>>(callable));
-        assert(success);
-        return *this;
-    }
-
-    template <typename R, typename... Args>
-    object_description& WithMethod(const std::string& name, R(ObjectType::*callable)(Args...) const)
-    {
-        auto[it, success] = m_methods.emplace(name,
-            std::make_unique<detail::unbound_lua_callback<ObjectType, decltype(callable), Args...>>(callable));
-        assert(success);
-        return *this;
-    }
-
-    object_type_info Build()
-    {
-        return {
-            typeid(ObjectType),
-            std::move(m_methods)
-        };
-    }
-
-private:
-    // The methods in the object type
-    std::unordered_map<std::string, std::unique_ptr<detail::lua_callback>> m_methods;
-};
 
 //
 // Registry for method and class information
@@ -375,6 +359,76 @@ private:
 class type_registry
 {
 public:
+    class object_type_info_base
+    {
+    public:
+        virtual ~object_type_info_base() = default;
+
+        const auto& methods() const
+        {
+            return m_methods;
+        }
+
+    protected:
+        void register_method(std::string name, std::unique_ptr<detail::lua_callback> callback)
+        {
+            auto [it,success] = m_methods.emplace(std::move(name), std::move(callback));
+            assert(success);
+        }
+
+    private:
+        // The methods in the object type
+        std::unordered_map<std::string, std::unique_ptr<detail::lua_callback>> m_methods;
+    };
+
+    template <typename ObjectType>
+    class object_type_info : public object_type_info_base
+    {
+        static_assert(std::is_class_v<ObjectType>);
+
+    public:
+        template <typename R, typename... Args>
+        object_type_info& WithMethod(std::string name, R(ObjectType::*callable)(Args...))
+        {
+            register_method(std::move(name),
+                std::make_unique<detail::unbound_lua_callback<ObjectType, decltype(callable), Args...>>(callable));
+            return *this;
+        }
+
+        template <typename R, typename... Args>
+        object_type_info& WithMethod(std::string name, R(ObjectType::*callable)(Args...) const)
+        {
+            register_method(std::move(name),
+                std::make_unique<detail::unbound_lua_callback<ObjectType, decltype(callable), Args...>>(callable));
+            return *this;
+        }
+
+        template <typename BaseType>
+        object_type_info& WithBase()
+        {
+            static_assert(std::is_base_of_v<BaseType, ObjectType>);
+
+            const auto* info = m_registry.get_object_type(typeid(BaseType));
+            assert(info != nullptr);
+            for (const auto& [name, method] : info->methods())
+            {
+                const auto& base_method = static_cast<const detail::object_lua_callback<BaseType>&>(*method);
+                register_method(name,
+                  std::make_unique<detail::object_cast_lua_callback<ObjectType,BaseType>>(base_method));
+            }
+
+            return *this;
+        }
+
+        object_type_info(const type_registry& registry)
+            : m_registry(registry)
+        {
+        }
+
+    private:
+        const type_registry& m_registry;
+    };
+
     //
     // Adds a generic callable as global function
     // \param[in] name the name to register the function as
@@ -430,12 +484,23 @@ public:
     // Native C++ objects can be passed along to script method calls only after
     // registering them via this function.
     //
-    void add_object_type(object_type_info info);
+    template <typename ObjectType>
+    object_type_info<ObjectType>& add_object_type()
+    {
+        // Check the type hasn't been registered yet
+        auto index = std::type_index{typeid(ObjectType)};
+        assert(m_object_types.find(index) == m_object_types.end());
+
+        auto info = std::make_unique<object_type_info<ObjectType>>(*this);
+        auto& raw_info = *info;
+        m_object_types.emplace(index, std::move(info));
+        return raw_info;
+    }
 
     //
     // Finds a registered object type info based on the type.
     //
-    const object_type_info* get_object_type(std::type_index typeIndex) const;
+    const object_type_info_base* get_object_type(std::type_index typeIndex) const;
 
 private:
     // Adds a std::function as global function
@@ -448,7 +513,7 @@ private:
     }
 
     std::unordered_map<std::string, std::unique_ptr<detail::lua_callback>> m_free_functions;
-    std::unordered_map<std::type_index, object_type_info> m_object_types;
+    std::unordered_map<std::type_index, std::unique_ptr<object_type_info_base>> m_object_types;
 };
 
 class script final
@@ -539,7 +604,7 @@ private:
     template <typename T>
     void push_value(lua_State& state, const std::shared_ptr<T>& value)
     {
-        const object_type_info* info = nullptr;
+        const type_registry::object_type_info_base* info = nullptr;
         if (m_registry != nullptr)
         {
             info = m_registry->get_object_type(typeid(T));

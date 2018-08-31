@@ -87,20 +87,10 @@ namespace detail
     }
 }
 
-void type_registry::add_object_type(object_type_info info)
-{
-    auto index = info.m_typeIndex;
-
-    // Check the type hasn't been registered yet
-    assert(m_object_types.find(index) == m_object_types.end());
-
-    m_object_types.emplace(index, std::move(info));
-}
-
-const object_type_info* type_registry::get_object_type(std::type_index typeIndex) const
+const type_registry::object_type_info_base* type_registry::get_object_type(std::type_index typeIndex) const
 {
     auto it = m_object_types.find(typeIndex);
-    return (it != m_object_types.end()) ? &it->second : nullptr;
+    return (it != m_object_types.end()) ? it->second.get() : nullptr;
 }
 
 script::script(const std::string& name, const std::vector<char>& buffer, std::shared_ptr<type_registry> registry)
@@ -149,7 +139,7 @@ void script::set_object_methods(lua_State& state, std::type_index type) const
     auto* info = m_registry->get_object_type(type);
     assert(info != nullptr);
 
-    for (const auto& [name, callback] : info->m_methods)
+    for (const auto& [name, callback] : info->methods())
     {
         lua_pushlightuserdata(&state, callback.get());
         lua_pushcclosure(&state, &lua_trampoline, 1);
