@@ -135,25 +135,25 @@ public:
 
     // Construct a value from an integer value
     template <typename T, typename std::enable_if_t<std::is_integral_v<T>,int*> = nullptr>
-    value(T value) : m_storage(static_cast<long long>(value)) {}
+    value(T val) : m_storage(static_cast<long long>(val)) {}
 
     // Construct a value from a floating-point value
     template <typename T, typename std::enable_if_t<std::is_floating_point_v<T>,int*> = nullptr>
-    value(T value) : m_storage(static_cast<double>(value)) {}
+    value(T val) : m_storage(static_cast<double>(val)) {}
 
     // Construct a value from a boolean
-    value(bool value) : m_storage(value) {}
+    value(bool val) : m_storage(val) {}
 
     // Construct a value from a string
-    value(std::string value) : m_storage(std::move(value)) {}
+    value(std::string val) : m_storage(std::move(val)) {}
 
     // Construct a value from a raw string
-    value(const char* value) : m_storage(std::string(value)) {}
+    value(const char* val) : m_storage(std::string(val)) {}
 
     // Construct a value from a shared pointer to an object
     template <typename T, class = std::enable_if_t<std::is_class_v<T>, void>>
-    value(std::shared_ptr<T> value)
-        : m_storage(object_info{typeid(T), reinterpret_cast<std::uintptr_t>(value.get())})
+    value(std::shared_ptr<T> val)
+        : m_storage(object_info{typeid(T), reinterpret_cast<std::uintptr_t>(val.get())})
     {}
 
     // Apply a visitor to this value. The visitor can have overloads for each of the supported
@@ -197,16 +197,15 @@ namespace detail
     };
 
     template <typename T>
-    static std::enable_if_t<std::is_integral_v<T>, T> read_value(lua_State& state, int index, T*)
+    inline std::enable_if_t<std::is_integral_v<T>, T> read_value(lua_State& state, int index, T*)
     {
         return static_cast<T>(detail::read_integer(state, index));
     };
 
-    static std::string read_value(lua_State& state, int index, std::string*)
+    inline std::string read_value(lua_State& state, int index, std::string*)
     {
         return detail::read_string(state, index);
     };
-
 
     template <int Index>
     static auto read_arguments(lua_State& state)
@@ -372,8 +371,9 @@ public:
     protected:
         void register_method(std::string name, std::unique_ptr<detail::lua_callback> callback)
         {
-            auto [it,success] = m_methods.emplace(std::move(name), std::move(callback));
+            bool success = m_methods.emplace(std::move(name), std::move(callback)).second;
             assert(success);
+            (void)success;
         }
 
     private:

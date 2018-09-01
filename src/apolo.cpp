@@ -100,11 +100,11 @@ script::script(const std::string& name, const std::vector<char>& buffer, std::sh
     if (m_registry != nullptr)
     {
         // Register the free functions as global functions before executing
-        for (const auto& [name, callback] : m_registry->free_functions())
+        for (const auto& [method_name, callback] : m_registry->free_functions())
         {
             lua_pushlightuserdata(m_state.get(), callback.get());
             lua_pushcclosure(m_state.get(), &lua_trampoline, 1);
-            lua_setglobal(m_state.get(), name.c_str());
+            lua_setglobal(m_state.get(), method_name.c_str());
         }
     }
 
