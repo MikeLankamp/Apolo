@@ -84,14 +84,14 @@ namespace detail
     }
 
 
-    template <typename T>
-    void push_value(lua_State& state, std::enable_if_t<std::is_integral_v<T>, T> value)
+    template <typename T, std::enable_if_t<std::is_integral_v<T>, void*> = nullptr>
+    void push_value(lua_State& state, T value)
     {
-        lua_pushnumber(&state, static_cast<lua_Number>(value));
+        lua_pushinteger(&state, static_cast<lua_Integer>(value));
     }
 
-    template <typename T>
-    void push_value(lua_State& state, std::enable_if_t<std::is_floating_point_v<T>, T> value)
+    template <typename T, std::enable_if_t<std::is_floating_point_v<T>, void*> = nullptr>
+    void push_value(lua_State& state, T value)
     {
         lua_pushnumber(&state, static_cast<lua_Number>(value));
     }
@@ -121,6 +121,63 @@ namespace detail
     };
 
     using lua_state_ptr = std::unique_ptr<lua_State, lua_state_delete>;
+
+    // Moveable type for holding Lua references from native code
+    class lua_ref
+    {
+    public:
+        lua_ref() : m_state(nullptr), m_ref(LUA_REFNIL) {}
+
+        // Non-copyable
+        lua_ref(const lua_ref&) = delete;
+        lua_ref& operator=(const lua_ref&) = delete;
+
+        lua_ref(lua_ref&& ref)
+          : m_state(ref.m_state)
+          , m_ref(ref.m_ref)
+        {
+            ref.release();
+        }
+
+        lua_ref& operator=(lua_ref&& ref)
+        {
+            release();
+            m_state = ref.m_state;
+            m_ref = ref.m_ref;
+            ref.release();
+            return *this;
+        }
+
+        static lua_ref pop_from_stack(lua_State& state)
+        {
+            return lua_ref(state, luaL_ref(&state, LUA_REGISTRYINDEX));
+        }
+
+        ~lua_ref()
+        {
+            release();
+        }
+
+    private:
+        void release()
+        {
+            if (m_state != nullptr)
+            {
+                luaL_unref(m_state, LUA_REGISTRYINDEX, m_ref);
+                m_state = nullptr;
+                m_ref = LUA_REFNIL;
+            }
+        }
+
+        lua_ref(lua_State& state, int ref)
+            : m_state(&state)
+            , m_ref(ref)
+        {
+        }
+
+        lua_State* m_state;
+        int m_ref;
+    };
 }
 
 // Variant-like type for Lua-compatible values
@@ -155,6 +212,12 @@ public:
     value(std::shared_ptr<T> val)
         : m_storage(object_info{typeid(T), reinterpret_cast<std::uintptr_t>(val.get())})
     {}
+
+    template <typename T>
+    const T& as() const
+    {
+        return std::get<T>(m_storage);
+    }
 
     // Apply a visitor to this value. The visitor can have overloads for each of the supported
     // types.
@@ -555,41 +618,51 @@ public:
 	template <typename... Args>
     value call(const std::string& name, Args&& ...args)
     {
-	    // Push function on the stack
-        lua_getglobal(m_state.get(), name.c_str());
-        try
+	    // Create a new thread
+        auto thread_state = lua_newthread(m_state.get());
+        auto thread_ref   = detail::lua_ref::pop_from_stack(*m_state.get());
+
+	    // Get the function
+        lua_getglobal(thread_state, name.c_str());
+        if (!lua_isfunction(thread_state, -1))
         {
-            if (!lua_isfunction(m_state.get(), -1))
+            // Callback is not a function
+            throw runtime_error("Calling undefined function \"" + name + "\"");
+        }
+
+        // Push arguments
+        (push_value(*thread_state, args), ...);
+        int nargs = sizeof...(args);
+
+        // Resume/start the function
+        while (nargs >= 0)
+        {
+            switch (lua_resume(thread_state, nullptr, nargs))
             {
-                // Callback is not a function
-                throw runtime_error("Calling undefined function \"" + name + "\"");
+            case LUA_OK:
+                // Thread finished successfully; stop resuming
+                nargs = -1;
+                break;
+            case LUA_YIELD:
+                // We don't care about the yield arguments
+                lua_pop(thread_state, lua_gettop(thread_state));
+                nargs = 0;
+                break;
+            case LUA_ERRMEM:
+                throw std::bad_alloc();
+            default:
+                throw runtime_error(lua_tostring(thread_state, -1));
             }
-
-            // Push arguments
-            (push_value(*m_state, args), ...);
         }
-        catch (...)
+
+        // Read the return value, if any
+        value retval;
+        if (lua_gettop(thread_state) > 0)
         {
-            // Remove function from stack
-            lua_pop(m_state.get(), 1);
-            throw;
+            retval = detail::read_value(*thread_state, -1);
+            lua_pop(thread_state, 1);
         }
-
-        // Call the function
-        switch (lua_pcall(m_state.get(), sizeof...(args), 1, 0))
-        {
-        case 0:
-            break;
-        case LUA_ERRMEM:
-            throw std::bad_alloc();
-        default:
-            throw runtime_error(lua_tostring(m_state.get(), -1));
-        }
-
-        // Read the return value
-        auto value = detail::read_value(*m_state, -1);
-        lua_pop(m_state.get(), 1);
-        return value;
+        return retval;
     }
 
 private:
@@ -649,6 +722,9 @@ private:
         }
         return 0;
     }
+
+    void load_builtins();
+    static int builtin_yield(lua_State* state);
 
     std::shared_ptr<type_registry> m_registry;
     detail::lua_state_ptr m_state;
