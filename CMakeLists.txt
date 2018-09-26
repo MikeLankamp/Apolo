@@ -53,6 +53,7 @@ add_executable(${PROJECT_NAME}-test
   tests/arguments.cpp
   tests/builtins.cpp
   tests/function_call.cpp
+  tests/function_call_async.cpp
   tests/inheritance.cpp
   tests/register_global_function.cpp
   tests/register_simple_object.cpp

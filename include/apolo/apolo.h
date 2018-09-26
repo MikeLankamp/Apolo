@@ -4,7 +4,9 @@
 
 #include <cassert>
 #include <functional>
+#include <future>
 #include <memory>
+#include <queue>
 #include <string>
 #include <stdexcept>
 #include <tuple>
@@ -579,6 +581,148 @@ private:
     std::unordered_map<std::type_index, std::unique_ptr<object_type_info_base>> m_object_types;
 };
 
+class thread
+{
+public:
+    // The status of the thread
+    enum class status
+    {
+        yielded,
+        finished,
+    };
+
+    // Creates a thread from the specified state and calls the function at the top of the stack.
+    // It expects the top of the stack contains the function to-be-run in the thread, plus
+    // \a nargs of arguments. The top \a nargs + 1 stack values are moved to the newly created thread.
+    thread(lua_State& state, int nargs)
+        : m_nargs(nargs)
+    {
+        // Create the new thread
+        m_state = lua_newthread(&state);
+        m_ref   = detail::lua_ref::pop_from_stack(state);
+
+        // Move the callable plus arguments over
+        lua_xmove(&state, m_state, nargs + 1);
+    }
+
+    // Run the thread until it yields or finishes.
+    // Exceptions thrown while running the thread will mark the thread as finished.
+    // The exceptions themselves are returned via the future.
+    // \return the status of the thread after running it.
+    status run() noexcept
+    {
+        if (is_runnable())
+        {
+            try
+            {
+                // Resume/start the function
+                switch (lua_resume(m_state, nullptr, std::max(0, m_nargs)))
+                {
+                case LUA_OK:
+                {
+                    // Thread finished successfully; read the return value, if any
+                    value value;
+                    if (lua_gettop(m_state) > 0)
+                    {
+                        value = detail::read_value(*m_state, -1);
+                        lua_pop(m_state, 1);
+                    }
+                    m_promise.set_value(value);
+                    m_nargs = -1;
+                    break;
+                }
+                case LUA_YIELD:
+                    // We don't care about the yield arguments
+                    lua_pop(m_state, lua_gettop(m_state));
+                    m_nargs = -1;
+                    return status::yielded;
+                case LUA_ERRMEM:
+                    throw std::bad_alloc();
+                default:
+                    throw runtime_error(lua_tostring(m_state, -1));
+                }
+            }
+            catch (...)
+            {
+                m_promise.set_exception(std::current_exception());
+            }
+        }
+        return status::finished;
+    }
+
+    // Get the future that will return the result of this thread
+    std::future<value> get_future()
+    {
+        return m_promise.get_future();
+    }
+
+private:
+    bool is_runnable() const
+    {
+        switch (lua_status(m_state))
+        {
+        case LUA_YIELD:
+            return true;
+        case LUA_OK:
+            return m_nargs >= 0;
+        }
+        return false;
+    }
+
+    lua_State* m_state;
+    detail::lua_ref m_ref;
+    int m_nargs;
+    std::promise<value> m_promise;
+};
+
+// Executors manage the execution of script threads. These threads are started by calling
+// \a script::call_async and passing in an executor.
+class executor
+{
+public:
+    virtual ~executor() = default;
+
+    // Adds a thread to the executor to manage
+    virtual void add_thread(thread thread) = 0;
+};
+
+// An executor that cooperatively runs the threads added to it.
+// It runs each thread until it yields, then runs the next one.
+class cooperative_executor final : public executor
+{
+public:
+    void add_thread(thread thread) override
+    {
+        threads.push(std::move(thread));
+    }
+
+    // Runs all added threads until they finish
+    void run()
+    {
+        while (!threads.empty())
+        {
+            auto thread = std::move(threads.front());
+            threads.pop();
+
+            // Run the thread
+            switch (thread.run())
+            {
+            case thread::status::yielded:
+                // Push the thread back on the queue
+                threads.push(std::move(thread));
+                break;
+
+            case thread::status::finished:
+                // Thread finished successfully
+                break;
+            }
+        }
+    }
+
+private:
+    std::queue<thread> threads;
+};
+
 class script final
 {
 public:
@@ -618,51 +762,40 @@ public:
 	template <typename... Args>
     value call(const std::string& name, Args&& ...args)
     {
-	    // Create a new thread
-        auto thread_state = lua_newthread(m_state.get());
-        auto thread_ref   = detail::lua_ref::pop_from_stack(*m_state.get());
+	    cooperative_executor executor;
+	    auto future = call_async(executor, name, std::forward<Args>(args)...);
+	    executor.run();
+	    return future.get();
+    }
 
-	    // Get the function
-        lua_getglobal(thread_state, name.c_str());
-        if (!lua_isfunction(thread_state, -1))
+    //
+    // Calls a function in this script, asynchronously.
+    //
+    // This method works just like \a call, except it doesn't immediately execute the function
+	// and return the result. Instead, execution of the function is handled by \p executor,
+	// and a future to the result is returned.
+	//
+	// Note: it is the responsibility of the caller to ensure that the script is not destroyed
+	// while asynchronous calls are still running.
+    //
+    template <typename... Args>
+    std::future<value> call_async(executor& executor, const std::string& name, Args&& ...args)
+    {
+             // Get the function
+        lua_getglobal(m_state.get(), name.c_str());
+        if (!lua_isfunction(m_state.get(), -1))
         {
             // Callback is not a function
             throw runtime_error("Calling undefined function \"" + name + "\"");
         }
 
         // Push arguments
-        (push_value(*thread_state, args), ...);
-        int nargs = sizeof...(args);
+        (push_value(*m_state.get(), args), ...);
 
-        // Resume/start the function
-        while (nargs >= 0)
-        {
-            switch (lua_resume(thread_state, nullptr, nargs))
-            {
-            case LUA_OK:
-                // Thread finished successfully; stop resuming
-                nargs = -1;
-                break;
-            case LUA_YIELD:
-                // We don't care about the yield arguments
-                lua_pop(thread_state, lua_gettop(thread_state));
-                nargs = 0;
-                break;
-            case LUA_ERRMEM:
-                throw std::bad_alloc();
-            default:
-                throw runtime_error(lua_tostring(thread_state, -1));
-            }
-        }
-
-        // Read the return value, if any
-        value retval;
-        if (lua_gettop(thread_state) > 0)
-        {
-            retval = detail::read_value(*thread_state, -1);
-            lua_pop(thread_state, 1);
-        }
-        return retval;
+        thread t(*m_state.get(), sizeof...(args));
+        auto future = t.get_future();
+        executor.add_thread(std::move(t));
+        return future;
     }
 
 private:
