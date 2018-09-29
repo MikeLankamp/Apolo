@@ -1,6 +1,7 @@
 #include "common.h"
 
 using testing::InSequence;
+using testing::Invoke;
 using testing::StrictMock;
 
 namespace
@@ -65,5 +66,21 @@ TEST(register_simple_object, call_method_with_invalid_self)
     apolo::script script("dummy", S("function test(x) x.foo(2) end"), registry);
 
     const auto mock = std::make_shared<Mock>();
+    EXPECT_THROW(script.call("test", mock), apolo::runtime_error);
+}
+
+TEST(register_simple_object, throws_from_object_method)
+{
+    const auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_object_type<Mock>()
+      .WithMethod("foo", &Mock::const_member);
+
+    const auto mock = std::static_pointer_cast<Mock>(std::make_shared<StrictMock<Mock>>());
+    EXPECT_CALL(*mock, const_member())
+        .WillOnce(Invoke([]{
+            throw 666;
+        }));
+
+    apolo::script script("dummy", S("function test(x) x:foo() end"), registry);
     EXPECT_THROW(script.call("test", mock), apolo::runtime_error);
 }
