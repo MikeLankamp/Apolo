@@ -190,8 +190,9 @@ void script::load_builtins()
     lua_setglobal(m_state.get(), "require");
 }
 
-script::script(const std::string& name, const std::vector<char>& buffer, std::shared_ptr<type_registry> registry)
-    : m_registry(std::move(registry))
+script::script(const std::string& name, const std::vector<char>& buffer, const configuration& config, std::shared_ptr<type_registry> registry)
+    : m_configuration(config)
+    , m_registry(std::move(registry))
     , m_state(create_lua_state())
 {
     // Store a reference to ourselves so we can get the script instance from the state.
@@ -256,6 +257,11 @@ void script::set_object_methods(lua_State& state, std::type_index type) const
     }
 }
 
+configuration script::default_configuration()
+{
+    return configuration{};
+}
+
 script* script::script_from_state(lua_State& state)
 {
     lua_getfield(&state, LUA_REGISTRYINDEX, SELF_KEY_NAME);
@@ -292,12 +298,7 @@ void script::load_library(const std::string& libname)
         throw apolo::runtime_error("invalid library name");
     }
 
-    script_load_function load_fn;
-    if (m_registry != nullptr)
-    {
-        load_fn = m_registry->load_function();
-    }
-
+    const script_load_function load_fn = m_configuration.load_function();
     if (!load_fn)
     {
         throw apolo::runtime_error("cannot load libraries");

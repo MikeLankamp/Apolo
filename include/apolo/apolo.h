@@ -420,6 +420,37 @@ using script_data = std::vector<char>;
 using script_load_function = std::function<script_data(const std::string&)>;
 
 //
+// Configuration for scripts.
+//
+// This object contains all configuration information for use in scripts, such as
+// the library-loading callback.
+class configuration
+{
+public:
+    //
+    // Set the function to load external scripts.
+    //
+    // Script can import external scripts (e.g. libraries) via a 'require' call.
+    // This callback is used to load those scripts' data.
+    //
+    // \param callback[in] the callback used to load external scripts (pass null to disable).
+    //
+    void load_function(script_load_function load_function)
+    {
+        m_load_function = load_function;
+    }
+
+    // Returns the the configured load function
+    const script_load_function& load_function() const
+    {
+        return m_load_function;
+    }
+
+private:
+    script_load_function m_load_function;
+};
+
+//
 // Registry for method and class information
 //
 // Construct a registry, register functions and classes and pass it in to \ref script instances to allow
@@ -572,24 +603,6 @@ public:
     //
     const object_type_info_base* get_object_type(std::type_index typeIndex) const;
 
-    //
-    // Set the function to load external scripts.
-    //
-    // Script can import external scripts (e.g. libraries) via a 'require' call.
-    // This callback is used to load those scripts' data.
-    //
-    // \param callback[in] the callback used to load external scripts (pass null to disable).
-    //
-    void load_function(script_load_function load_function)
-    {
-        m_load_function = load_function;
-    }
-
-    const script_load_function& load_function() const
-    {
-        return m_load_function;
-    }
-
 private:
     // Adds a std::function as global function
     template <typename R, typename... Args>
@@ -602,7 +615,6 @@ private:
 
     std::unordered_map<std::string, std::unique_ptr<detail::lua_callback>> m_free_functions;
     std::unordered_map<std::type_index, std::unique_ptr<object_type_info_base>> m_object_types;
-    script_load_function m_load_function;
 };
 
 class thread
@@ -755,14 +767,37 @@ public:
     //
     // \param name[in] the name of the script. This is used when reporting errors.
     // \param buffer[in] the data of the string. This can be the source code or a compiled script binary.
+    // \param config[in] configuration to use for this script. A copy is taken during construction.
     // \param registry[in] (optional) a registry of functions and object types that will be integrated with this script.
     //
     // \note The free functions from the registry are available to the top-level code in the script as well.
     //      Registered object types are supported for passing shared pointers of as arguments in #call.
-    script(const std::string& name, const script_data& buffer, std::shared_ptr<type_registry> registry);
+    script(const std::string& name, const script_data& buffer, const configuration& config, std::shared_ptr<type_registry> registry);
+
+    //
+    // Constructs a named script object with the default configuration.
+    //
+    // \param name[in] the name of the script. This is used when reporting errors.
+    // \param buffer[in] the data of the string. This can be the source code or a compiled script binary.
+    // \param registry[in] (optional) a registry of functions and object types that will be integrated with this script.
+    script(const std::string& name, const script_data& buffer, std::shared_ptr<type_registry> registry)
+        : script(name, buffer, default_configuration(), std::move(registry))
+    {
+    }
 
     //
     // Constructs a named script object without any registered types.
+    //
+    // \param name[in] the name of the script. This is used when reporting errors.
+    // \param buffer[in] the data of the string. This can be the source code or a compiled script binary.
+    // \param config[in] configuration to use for this script. A copy is taken during construction.
+    script(const std::string& name, const script_data& buffer, const configuration& config)
+        : script(name, buffer, config, nullptr)
+    {
+    }
+
+    //
+    // Constructs a named script object with the default configuration and without any registered types.
     //
     // \param name[in] the name of the script. This is used when reporting errors.
     // \param buffer[in] the data of the string. This can be the source code or a compiled script binary.
@@ -880,6 +915,8 @@ private:
         return 0;
     }
 
+    static configuration default_configuration();
+
     void run(const script_data& buffer, const std::string& name);
     void load_library(const std::string& libname);
 
@@ -889,6 +926,7 @@ private:
 
     static script* script_from_state(lua_State& state);
 
+    configuration m_configuration;
     std::shared_ptr<type_registry> m_registry;
     std::set<std::string> m_loaded_libraries;
     detail::lua_state_ptr m_state;
