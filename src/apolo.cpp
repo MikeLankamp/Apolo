@@ -119,6 +119,99 @@ const type_registry::object_type_info_base* type_registry::get_object_type(std::
     return (it != m_object_types.end()) ? it->second.get() : nullptr;
 }
 
+thread::thread(lua_State& state, int nargs)
+    : m_nargs(nargs)
+{
+    // Create the new thread
+    m_state = lua_newthread(&state);
+    m_ref   = detail::lua_ref::pop_from_stack(state);
+
+    // Move the callable plus arguments over
+    lua_xmove(&state, m_state, nargs + 1);
+}
+
+thread::status thread::run() noexcept
+{
+    if (is_runnable())
+    {
+        try
+        {
+            // Resume/start the function
+            switch (lua_resume(m_state, nullptr, std::max(0, m_nargs)))
+            {
+            case LUA_OK:
+            {
+                // Thread finished successfully; read the return value, if any
+                value value;
+                if (lua_gettop(m_state) > 0)
+                {
+                    value = detail::read_value(*m_state, -1);
+                    lua_pop(m_state, 1);
+                }
+                m_promise.set_value(value);
+                m_nargs = -1;
+                break;
+            }
+            case LUA_YIELD:
+                // We don't care about the yield arguments
+                lua_pop(m_state, lua_gettop(m_state));
+                m_nargs = -1;
+                return status::yielded;
+            case LUA_ERRMEM:
+                throw std::bad_alloc();
+            default:
+                throw runtime_error(lua_tostring(m_state, -1));
+            }
+        }
+        catch (...)
+        {
+            m_promise.set_exception(std::current_exception());
+        }
+    }
+    return status::finished;
+}
+
+bool thread::is_runnable() const
+{
+    switch (lua_status(m_state))
+    {
+    case LUA_YIELD:
+        return true;
+    case LUA_OK:
+        return m_nargs >= 0;
+    }
+    return false;
+}
+
+
+void cooperative_executor::add_thread(thread thread)
+{
+    threads.push(std::move(thread));
+}
+
+// Runs all added threads until they finish
+void cooperative_executor::run()
+{
+    while (!threads.empty())
+    {
+        auto thread = std::move(threads.front());
+        threads.pop();
+
+        // Run the thread
+        switch (thread.run())
+        {
+        case thread::status::yielded:
+            // Push the thread back on the queue
+            threads.push(std::move(thread));
+            break;
+
+        case thread::status::finished:
+            // Thread finished successfully
+            break;
+        }
+    }
+}
+
 template <typename Whitelist>
 static bool contains(const Whitelist& whitelist, const char* value)
 {
