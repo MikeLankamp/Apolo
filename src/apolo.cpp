@@ -8,12 +8,12 @@ namespace apolo
 
 namespace
 {
-    int lua_trampoline(lua_State* state)
+    template <typename Callable>
+    int catch_exceptions(lua_State* state, const Callable& callable)
     {
         try
         {
-            auto callback = static_cast<detail::lua_callback*>(lua_touserdata(state, lua_upvalueindex(1)));
-            return callback->invoke(*state);
+            return callable();
         }
         catch (std::exception& ex)
         {
@@ -21,6 +21,14 @@ namespace
             lua_error(state);
         }
         return 0;
+    }
+
+    int lua_trampoline(lua_State* state)
+    {
+        return catch_exceptions(state, [&]{
+            auto callback = static_cast<detail::lua_callback*>(lua_touserdata(state, lua_upvalueindex(1)));
+            return callback->invoke(*state);
+        });
     }
 
     auto create_lua_state()
@@ -32,6 +40,16 @@ namespace
         }
         return state;
     }
+
+    std::string trim(const std::string& str)
+    {
+        auto begin = str.begin(), end = str.end();
+        while (isspace(*begin)) ++begin;
+        while (end > begin && isspace(*(end - 1))) --end;
+        return std::string(begin, end);
+    }
+
+    static constexpr const char* SELF_KEY_NAME = "script_self";
 }
 
 namespace detail
@@ -162,12 +180,19 @@ void script::load_builtins()
     // Add our custom global methods
     lua_pushcfunction(m_state.get(), &script::builtin_yield);
     lua_setglobal(m_state.get(), "yield");
+
+    lua_pushcfunction(m_state.get(), &script::builtin_require);
+    lua_setglobal(m_state.get(), "require");
 }
 
 script::script(const std::string& name, const std::vector<char>& buffer, std::shared_ptr<type_registry> registry)
     : m_registry(std::move(registry))
     , m_state(create_lua_state())
 {
+    // Store a reference to ourselves so we can get the script instance from the state.
+    lua_pushlightuserdata(m_state.get(), this);
+    lua_setfield(m_state.get(), LUA_REGISTRYINDEX, SELF_KEY_NAME);
+
     // Load the built-in methods
     load_builtins();
 
@@ -182,6 +207,11 @@ script::script(const std::string& name, const std::vector<char>& buffer, std::sh
         }
     }
 
+    run(buffer, name);
+}
+
+void script::run(const script_data& buffer, const std::string& name)
+{
     // Load script into state
     switch (luaL_loadbuffer(m_state.get(), buffer.data(), buffer.size(), name.c_str()))
     {
@@ -218,6 +248,62 @@ void script::set_object_methods(lua_State& state, std::type_index type) const
         lua_pushlightuserdata(&state, callback.get());
         lua_pushcclosure(&state, &lua_trampoline, 1);
         lua_setfield(&state, -2, name.c_str());
+    }
+}
+
+script* script::script_from_state(lua_State& state)
+{
+    lua_getfield(&state, LUA_REGISTRYINDEX, SELF_KEY_NAME);
+    script* s = static_cast<script*>(lua_touserdata(&state, -1));
+    lua_pop(&state, 1);
+    return s;
+}
+
+int script::builtin_require(lua_State* state)
+{
+    script* s = script_from_state(*state);
+    if (s == nullptr)
+    {
+        return luaL_error(state, "Invalid call to require()");
+    }
+
+    const char* libname = lua_tostring(state, 1);
+    if (libname == nullptr)
+    {
+        return luaL_error(state, "Missing argument to require()");
+    }
+
+    return catch_exceptions(state, [&]{
+        s->load_library(libname);
+        return 0;
+    });
+}
+
+void script::load_library(const std::string& libname)
+{
+    const std::string sanitized_libname = trim(libname);
+    if (sanitized_libname.empty())
+    {
+        throw apolo::runtime_error("invalid library name");
+    }
+
+    script_load_function load_fn;
+    if (m_registry != nullptr)
+    {
+        load_fn = m_registry->load_function();
+    }
+
+    if (!load_fn)
+    {
+        throw apolo::runtime_error("cannot load libraries");
+    }
+
+    if (m_loaded_libraries.find(sanitized_libname) == m_loaded_libraries.end())
+    {
+        // Library hasn't been loaded yet -- load it
+        m_loaded_libraries.insert(sanitized_libname);
+
+        run(load_fn(sanitized_libname), sanitized_libname);
     }
 }
 

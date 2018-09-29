@@ -7,6 +7,7 @@
 #include <future>
 #include <memory>
 #include <queue>
+#include <set>
 #include <string>
 #include <stdexcept>
 #include <tuple>
@@ -414,6 +415,10 @@ namespace detail
     };
 }
 
+using script_data = std::vector<char>;
+
+using script_load_function = std::function<script_data(const std::string&)>;
+
 //
 // Registry for method and class information
 //
@@ -567,6 +572,24 @@ public:
     //
     const object_type_info_base* get_object_type(std::type_index typeIndex) const;
 
+    //
+    // Set the function to load external scripts.
+    //
+    // Script can import external scripts (e.g. libraries) via a 'require' call.
+    // This callback is used to load those scripts' data.
+    //
+    // \param callback[in] the callback used to load external scripts (pass null to disable).
+    //
+    void load_function(script_load_function load_function)
+    {
+        m_load_function = load_function;
+    }
+
+    const script_load_function& load_function() const
+    {
+        return m_load_function;
+    }
+
 private:
     // Adds a std::function as global function
     template <typename R, typename... Args>
@@ -579,6 +602,7 @@ private:
 
     std::unordered_map<std::string, std::unique_ptr<detail::lua_callback>> m_free_functions;
     std::unordered_map<std::type_index, std::unique_ptr<object_type_info_base>> m_object_types;
+    script_load_function m_load_function;
 };
 
 class thread
@@ -735,14 +759,14 @@ public:
     //
     // \note The free functions from the registry are available to the top-level code in the script as well.
     //      Registered object types are supported for passing shared pointers of as arguments in #call.
-    script(const std::string& name, const std::vector<char>& buffer, std::shared_ptr<type_registry> registry);
+    script(const std::string& name, const script_data& buffer, std::shared_ptr<type_registry> registry);
 
     //
     // Constructs a named script object without any registered types.
     //
     // \param name[in] the name of the script. This is used when reporting errors.
     // \param buffer[in] the data of the string. This can be the source code or a compiled script binary.
-    script(const std::string& name, const std::vector<char>& buffer)
+    script(const std::string& name, const script_data& buffer)
         : script(name, buffer, nullptr)
     {
     }
@@ -856,10 +880,17 @@ private:
         return 0;
     }
 
+    void run(const script_data& buffer, const std::string& name);
+    void load_library(const std::string& libname);
+
     void load_builtins();
     static int builtin_yield(lua_State* state);
+    static int builtin_require(lua_State* state);
+
+    static script* script_from_state(lua_State& state);
 
     std::shared_ptr<type_registry> m_registry;
+    std::set<std::string> m_loaded_libraries;
     detail::lua_state_ptr m_state;
 };
 
