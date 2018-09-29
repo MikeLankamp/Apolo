@@ -20,6 +20,11 @@ namespace
             lua_pushstring(state, ex.what());
             lua_error(state);
         }
+        catch (...)
+        {
+            lua_pushstring(state, "unknown exception");
+            lua_error(state);
+        }
         return 0;
     }
 

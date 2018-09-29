@@ -67,3 +67,13 @@ TEST(register_global_function, exception_in_function)
     });
     EXPECT_THROW(apolo::script("dummy", S("foo()"), registry), apolo::runtime_error);
 }
+
+TEST(register_global_function, throws_non_exception_in_function)
+{
+    auto registry = std::make_shared<apolo::type_registry>();
+    registry->add_free_function("foo", [&]() -> void
+    {
+        throw 666;
+    });
+    EXPECT_THROW(apolo::script("dummy", S("foo()"), registry), apolo::runtime_error);
+}
