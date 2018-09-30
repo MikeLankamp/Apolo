@@ -78,14 +78,7 @@ namespace detail
         using signature = ReturnType(Args...);
     };
 
-
-    template <typename ObjectType>
-    const std::string& metatable_name()
-    {
-        static const auto metatableName = std::string("ObjectType:") + typeid(ObjectType).name();
-        return metatableName;
-    }
-
+    std::string metatable_name(const std::type_info& type);
 
     template <typename T, std::enable_if_t<std::is_integral_v<T>, void*> = nullptr>
     void push_value(lua_State& state, T value)
@@ -363,7 +356,7 @@ namespace detail
         int invoke(lua_State& state) const override
         {
             // Check that the first argument is a native object reference
-            auto* ref = static_cast<std::shared_ptr<ObjectType>*>(luaL_testudata(&state, 1, detail::metatable_name<ObjectType>().c_str()));
+            auto* ref = static_cast<std::shared_ptr<ObjectType>*>(luaL_testudata(&state, 1, detail::metatable_name(typeid(ObjectType)).c_str()));
             if (ref == nullptr)
             {
                 throw runtime_error("Wrong arguments to function");
@@ -803,7 +796,7 @@ private:
         new(mem) std::shared_ptr<T>{ value };
 
         // Associate metatable for the userdata
-        if (luaL_newmetatable(&state, detail::metatable_name<T>().c_str()))
+        if (luaL_newmetatable(&state, detail::metatable_name(typeid(T)).c_str()))
         {
             // Populate the new metatable with the object's methods
             set_object_methods(state, typeid(T));
@@ -824,7 +817,7 @@ private:
     static int destroy_object_reference(lua_State* state)
     {
         // Get the to-be-GC'd argument and validate that it's a reference of the correct type
-        void* ref = luaL_checkudata(state, 1, detail::metatable_name<T>().c_str());
+        void* ref = luaL_checkudata(state, 1, detail::metatable_name(typeid(T)).c_str());
         if (ref != nullptr)
         {
             auto* ptr = static_cast<std::shared_ptr<T>*>(ref);

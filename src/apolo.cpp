@@ -111,6 +111,11 @@ namespace detail
         }
         return lua_tostring(&state, index);
     }
+
+    std::string metatable_name(const std::type_info& type)
+    {
+        return std::string("ObjectType:") + type.name();
+    }
 }
 
 const type_registry::object_type_info_base* type_registry::get_object_type(std::type_index typeIndex) const
