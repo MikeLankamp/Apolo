@@ -50,6 +50,7 @@ include(GoogleTest)
 
 enable_testing()
 add_executable(${PROJECT_NAME}-test
+  tests/allocator.cpp
   tests/arguments.cpp
   tests/builtins.cpp
   tests/function_call.cpp

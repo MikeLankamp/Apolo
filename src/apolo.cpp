@@ -54,6 +54,43 @@ namespace
         return std::string(begin, end);
     }
 
+    class new_delete_memory_resource : public memory_resource
+    {
+    private:
+        void* do_allocate(std::size_t bytes, std::size_t alignment) override
+        {
+            return ::operator new(bytes, static_cast<std::align_val_t>(alignment));
+        }
+
+        void do_deallocate(void* p, std::size_t bytes, std::size_t alignment) override
+        {
+            ::operator delete(p, bytes, static_cast<std::align_val_t>(alignment));
+        }
+
+        bool do_is_equal(const memory_resource& other) const noexcept override
+        {
+            return &other == this;
+        }
+    };
+
+    // Returns a memory resource that's backed by global new and delete.
+    memory_resource* new_delete_resource() noexcept
+    {
+        static new_delete_memory_resource resource;
+        return &resource;
+    }
+
+    template <class T>
+    auto create_allocator(const configuration& config)
+    {
+        memory_resource* resource = config.memory_resource();
+        if (resource == nullptr)
+        {
+            resource = new_delete_resource();
+        }
+        return detail::polymorphic_allocator<T>(resource);
+    }
+
     static constexpr const char* SELF_KEY_NAME = "script_self";
 }
 
@@ -291,6 +328,7 @@ void script::load_builtins()
 script::script(const std::string& name, const std::vector<char>& buffer, const configuration& config, std::shared_ptr<type_registry> registry)
     : m_configuration(config)
     , m_registry(std::move(registry))
+    , m_loaded_libraries(create_allocator<std::string>(config))
     , m_state(create_lua_state())
 {
     // Store a reference to ourselves so we can get the script instance from the state.

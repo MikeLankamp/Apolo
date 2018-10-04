@@ -3,6 +3,7 @@
 #include <lua/lua.hpp>
 
 #include <cassert>
+#include <cstddef>
 #include <functional>
 #include <future>
 #include <memory>
@@ -41,8 +42,154 @@ public:
   using exception::exception;
 };
 
+// A copy of std::pmr::memory_resource until its support is more wide-spread among compilers
+class memory_resource
+{
+public:
+    virtual ~memory_resource() = default;
+
+    void* allocate(std::size_t bytes, std::size_t alignment = alignof(std::max_align_t))
+    {
+        return do_allocate(bytes, alignment);
+    }
+
+    void deallocate(void* p, std::size_t bytes, std::size_t alignment = alignof(std::max_align_t))
+    {
+        do_deallocate(p, bytes, alignment);
+    }
+
+    bool is_equal(const memory_resource& other) const noexcept
+    {
+        return do_is_equal(other);
+    }
+
+private:
+    virtual void* do_allocate(std::size_t bytes, std::size_t alignment) = 0;
+    virtual void do_deallocate(void* p, std::size_t bytes, std::size_t alignment) = 0;
+    virtual bool do_is_equal(const memory_resource& other) const noexcept = 0;
+};
+
 namespace detail
 {
+    template <class Tp>
+    class polymorphic_allocator
+    {
+    public:
+        using value_type = Tp;
+
+        template <class U>
+        polymorphic_allocator(const polymorphic_allocator<U>& other) noexcept
+            : m_resource(other.resource())
+        {
+        }
+
+        polymorphic_allocator(memory_resource* resource)
+            : m_resource(resource)
+        {
+        }
+
+        polymorphic_allocator& operator=(const polymorphic_allocator& rhs) = delete;
+
+        Tp* allocate(size_t n)
+        {
+            return static_cast<Tp*>(m_resource->allocate(n * sizeof(Tp), alignof(Tp)));
+        }
+
+        void deallocate(Tp* p, size_t n)
+        {
+            m_resource->deallocate(p, n * sizeof(Tp), alignof(Tp));
+        }
+
+        template <class T, class... Args>
+        void construct(T* p, Args&&... args)
+        {
+            if constexpr (!std::uses_allocator_v<T, polymorphic_allocator>)
+            {
+                ::new(p) T(std::forward<Args>(args)...);
+            }
+            else if constexpr (std::is_constructible_v<T, std::allocator_arg_t, polymorphic_allocator, Args...>)
+            {
+                ::new(p) T(std::allocator_arg, *this, std::forward<Args>(args)...);
+            }
+            else
+            {
+                static_assert(std::is_constructible_v<T, Args..., polymorphic_allocator>, "constructing invalid type");
+                ::new(p) T(std::forward<Args>(args)..., *this);
+            }
+        }
+
+        template <class T1, class T2, class... Args1, class... Args2>
+        void construct(
+            std::pair<T1,T2>* p, std::piecewise_construct_t,
+            std::tuple<Args1...> x, std::tuple<Args2...> y)
+        {
+            ::new(p) std::pair<T1, T2>(
+                std::piecewise_construct, make_allocator_aware(x), make_allocator_aware(y));
+        }
+
+        template <class T1, class T2>
+        void construct(std::pair<T1,T2>* p)
+        {
+            construct(p, std::piecewise_construct, std::tuple<>(), std::tuple<>());
+        }
+
+        template <class T1, class T2, class U, class V>
+        void construct(std::pair<T1,T2>* p, U&& x, V&& y)
+        {
+            construct(p, std::piecewise_construct,
+                std::forward_as_tuple(std::forward<U>(x)),
+                std::forward_as_tuple(std::forward<V>(y)));
+        }
+
+        template <class T1, class T2, class U, class V>
+        void construct(std::pair<T1,T2>* p, const std::pair<U, V>& pr)
+        {
+            construct(p, std::piecewise_construct,
+                std::forward_as_tuple(pr.first),
+                std::forward_as_tuple(pr.second));
+        }
+
+        template <class T1, class T2, class U, class V>
+        void construct(std::pair<T1,T2>* p, std::pair<U, V>&& pr)
+        {
+            construct(p, std::piecewise_construct,
+                std::forward_as_tuple(std::forward<U>(pr.first)),
+                std::forward_as_tuple(std::forward<V>(pr.second)));
+        }
+
+        template <class T>
+        void destroy(T* p)
+        {
+            p->~T();
+        }
+
+        memory_resource* resource() const
+        {
+            return m_resource;
+        }
+    private:
+        template <class T, class... Args>
+        auto make_allocator_aware(std::tuple<Args...> x)
+        {
+            if constexpr (!std::uses_allocator_v<T, polymorphic_allocator>)
+            {
+                return x;
+            }
+            else if constexpr (std::is_constructible_v<T, std::allocator_arg_t, polymorphic_allocator, Args...>)
+            {
+                return std::tuple_cat(std::make_tuple(std::allocator_arg, *this), std::move(x));
+            }
+            else
+            {
+                static_assert(std::is_constructible_v<T, Args..., polymorphic_allocator>, "constructing invalid type");
+                return std::tuple_cat(std::move(x), std::make_tuple(*this));
+            }
+
+        }
+
+        memory_resource* m_resource;
+    };
+
     // Helper types for overloading on type for std::visit
     template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
     template<class... Ts> overloaded(Ts...)->overloaded<Ts...>;
@@ -412,6 +559,16 @@ using script_data = std::vector<char>;
 
 using script_load_function = std::function<script_data(const std::string&)>;
 
+inline bool operator==(const memory_resource& a, const memory_resource& b) noexcept
+{
+    return &a == &b || a.is_equal(b);
+}
+
+inline bool operator!=(const memory_resource& a, const memory_resource& b) noexcept
+{
+    return !(a == b);
+}
+
 //
 // Configuration for scripts.
 //
@@ -439,8 +596,21 @@ public:
         return m_load_function;
     }
 
+    // Sets the memory resource to use for all allocations made by the script
+    void memory_resource(apolo::memory_resource* mr)
+    {
+        m_memory_resource = mr;
+    }
+
+    // Returns the configured memory resource
+    apolo::memory_resource* memory_resource() const
+    {
+        return m_memory_resource;
+    }
+
 private:
-    script_load_function m_load_function;
+    apolo::script_load_function m_load_function;
+    apolo::memory_resource* m_memory_resource { nullptr };
 };
 
 //
@@ -839,7 +1009,7 @@ private:
 
     configuration m_configuration;
     std::shared_ptr<type_registry> m_registry;
-    std::set<std::string> m_loaded_libraries;
+    std::set<std::string, std::less<std::string>, detail::polymorphic_allocator<std::string>> m_loaded_libraries;
     detail::lua_state_ptr m_state;
 };
 
