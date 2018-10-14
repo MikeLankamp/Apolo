@@ -314,7 +314,7 @@ namespace detail
 
     private:
         template <typename Callable>
-        static std::enable_if_t<std::is_void_v<std::result_of_t<Callable()>>, int>
+        static std::enable_if_t<std::is_void_v<std::invoke_result_t<Callable>>, int>
         push_value(lua_State&, Callable&& callable)
         {
             callable();
@@ -322,7 +322,7 @@ namespace detail
         }
 
         template <typename Callable>
-        static std::enable_if_t<!std::is_void_v<std::result_of_t<Callable()>>, int>
+        static std::enable_if_t<!std::is_void_v<std::invoke_result_t<Callable>>, int>
         push_value(lua_State& state, Callable&& callable)
         {
             push_value(state, callable());
@@ -466,7 +466,7 @@ public:
         void register_method(std::string name, std::unique_ptr<detail::lua_callback> callback)
         {
             bool success = m_methods.emplace(std::move(name), std::move(callback)).second;
-            assert(success);
+            assert(success && "register_method");
             (void)success;
         }
 

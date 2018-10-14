@@ -1,3 +1,6 @@
+set(CMAKE_THREAD_PREFER_PTHREAD)
+find_package(Threads)
+
 add_library(gtest
 	src/gtest-all.cc
 )
@@ -11,7 +14,12 @@ target_include_directories(gtest
 
 target_link_libraries(gtest
   PRIVATE
-    pthread
+	Threads::Threads
+)
+
+target_compile_definitions(gtest
+  PUBLIC
+    GTEST_HAS_TR1_TUPLE=0
 )
 
 add_library(gtest-main

@@ -4,6 +4,11 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 set(CMAKE_CXX_STANDARD 17)
 project(apolo LANGUAGES C CXX)
 
+if (MSVC)
+  # Tell MSVC to set the proper value for the __cplusplus macro
+  add_compile_options(/Zc:__cplusplus)
+endif()
+
 # Set C++ warning flags for supported compilers
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wshadow")
