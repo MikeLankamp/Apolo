@@ -49,7 +49,7 @@ namespace
     std::string trim(const std::string& str)
     {
         auto begin = str.begin(), end = str.end();
-        while (isspace(*begin)) ++begin;
+        while (begin < end && isspace(*begin)) ++begin;
         while (end > begin && isspace(*(end - 1))) --end;
         return std::string(begin, end);
     }
