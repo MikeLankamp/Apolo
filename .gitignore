@@ -3,3 +3,6 @@
 .settings/
 .project
 .cproject
+
+# Visual Studio project files
+.vs/
